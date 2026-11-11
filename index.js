@@ -3,19 +3,29 @@
 //   HOOK_URL   alamat webhook lengkap ...exec?hook=RAHASIA&tugas=PR
 //   PUBLIC_URL alamat publik Railway, mis. https://nama-app.up.railway.app
 //   PAIR_PHONE nomor WA khusus untuk login pertama, format 628xxxx (tanpa +)
+//   QR_KEY     kata bebas (panjang) untuk membuka halaman QR: PUBLIC_URL/qr?k=KATA
 //   GRUP       (opsional) id grup dipisah koma; kosong = semua grup
 //   AUTH_DIR   (opsional) folder sesi, arahkan ke Volume Railway, mis. /data/auth
 const http = require('http'), crypto = require('crypto');
+const QRCode = require('qrcode');
 const pino = require('pino');
 const { default: makeWASocket, useMultiFileAuthState, downloadMediaMessage, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 
-const { HOOK_URL, PUBLIC_URL = '', PAIR_PHONE, GRUP = '', AUTH_DIR = './auth' } = process.env;
+const { HOOK_URL, PUBLIC_URL = '', PAIR_PHONE, GRUP = '', AUTH_DIR = './auth', QR_KEY = '' } = process.env;
+let qrTerakhir = '', tersambung = false;
 if (!HOOK_URL) { console.error('HOOK_URL belum diisi'); process.exit(1); }
 const grupBoleh = GRUP.split(',').map(s => s.trim()).filter(Boolean);
 
 // penyimpanan foto sementara (Apps Script mengunduh lewat /m/<id>)
 const media = new Map();
 http.createServer((req, res) => {
+  if ((req.url || '').split('?')[0] === '/qr') {
+    const k = new URL(req.url, 'http://x').searchParams.get('k');
+    if (!QR_KEY || k !== QR_KEY) { res.writeHead(403); return res.end('ditolak'); }
+    if (tersambung) { res.writeHead(200, { 'Content-Type': 'text/html' }); return res.end('<h2>Sudah terhubung</h2>'); }
+    if (!qrTerakhir) { res.writeHead(200, { 'Content-Type': 'text/html' }); return res.end('<meta http-equiv=refresh content=3><p>Menunggu QR... halaman dimuat ulang otomatis</p>'); }
+    return QRCode.toDataURL(qrTerakhir, { width: 320 }).then(u => { res.writeHead(200, { 'Content-Type': 'text/html' }); res.end('<meta http-equiv=refresh content=15><img src="' + u + '"><p>Scan: WhatsApp > Perangkat tertaut > Tautkan perangkat</p>'); });
+  }
   const m = /^\/m\/([a-f0-9]{32})$/.exec(req.url || '');
   const f = m && media.get(m[1]);
   if (!f) { res.writeHead(req.url === '/' ? 200 : 404); return res.end(req.url === '/' ? 'ok' : ''); }
@@ -31,10 +41,12 @@ async function mulai() {
   const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
   const { version } = await fetchLatestBaileysVersion();
   const sock = makeWASocket({ version, auth: state, logger: pino({ level: 'silent' }), browser: ['Gateway PR', 'Chrome', '1.0'] });
-  if (!sock.authState.creds.registered && PAIR_PHONE) setTimeout(async () => { try { console.log('KODE PASANGAN:', await sock.requestPairingCode(PAIR_PHONE)); } catch (e) { console.error(e.message); } }, 3000);
+  if (!sock.authState.creds.registered && PAIR_PHONE && !QR_KEY) setTimeout(async () => { try { console.log('KODE PASANGAN:', await sock.requestPairingCode(PAIR_PHONE)); } catch (e) { console.error(e.message); } }, 3000);
   sock.ev.on('creds.update', saveCreds);
-  sock.ev.on('connection.update', ({ connection, lastDisconnect }) => {
-    if (connection === 'open') console.log('terhubung');
+  sock.ev.on('connection.update', ({ connection, lastDisconnect, qr }) => {
+    if (qr) { qrTerakhir = qr; console.log('QR siap: buka /qr?k=QR_KEY'); }
+    if (connection === 'open') { tersambung = true; console.log('terhubung'); }
+    if (connection === 'close') tersambung = false;
     if (connection === 'close') { const kode = lastDisconnect && lastDisconnect.error && lastDisconnect.error.output && lastDisconnect.error.output.statusCode; if (kode !== DisconnectReason.loggedOut) mulai(); else console.error('Logout: hapus folder sesi lalu pasangkan ulang'); }
   });
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
