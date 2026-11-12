@@ -2,12 +2,12 @@
 // Variabel (isi di Railway > Variables, JANGAN ditulis di kode):
 //   HOOK_URL   alamat webhook lengkap ...exec?hook=RAHASIA&tugas=PR
 //   PUBLIC_URL alamat publik Railway, mis. https://nama-app.up.railway.app
-//   PAIR_PHONE nomor WA khusus untuk login pertama, format 628xxxx (tanpa +)
+//   PAIR_PHONE nomor gateway, format 628xxxx (dipakai sebagai nama pengirim pesan dari HP sendiri)
 //   TERIMA_SENDIRI  isi 1 bila pesan yang Anda kirim sendiri dari HP nomor gateway juga harus dibaca
 //   QR_KEY     kata bebas (panjang) untuk membuka halaman QR: PUBLIC_URL/qr?k=KATA
 //   GRUP       (opsional) id grup dipisah koma; kosong = semua grup
 //   AUTH_DIR   (opsional) folder sesi, arahkan ke Volume Railway, mis. /data/auth
-const http = require('http'), crypto = require('crypto');
+const http = require('http'), crypto = require('crypto'), fs = require('fs');
 const QRCode = require('qrcode');
 const pino = require('pino');
 const { default: makeWASocket, useMultiFileAuthState, downloadMediaMessage, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
@@ -42,13 +42,12 @@ async function mulai() {
   const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
   const { version } = await fetchLatestBaileysVersion();
   const sock = makeWASocket({ version, auth: state, logger: pino({ level: 'silent' }), browser: ['Gateway PR', 'Chrome', '1.0'] });
-  if (!sock.authState.creds.registered && PAIR_PHONE && !QR_KEY) setTimeout(async () => { try { console.log('KODE PASANGAN:', await sock.requestPairingCode(PAIR_PHONE)); } catch (e) { console.error(e.message); } }, 3000);
   sock.ev.on('creds.update', saveCreds);
   sock.ev.on('connection.update', ({ connection, lastDisconnect, qr }) => {
     if (qr) { qrTerakhir = qr; console.log('QR siap: buka /qr?k=QR_KEY'); }
     if (connection === 'open') { tersambung = true; console.log('terhubung'); }
     if (connection === 'close') tersambung = false;
-    if (connection === 'close') { const kode = lastDisconnect && lastDisconnect.error && lastDisconnect.error.output && lastDisconnect.error.output.statusCode; if (kode !== DisconnectReason.loggedOut) mulai(); else console.error('Logout: hapus folder sesi lalu pasangkan ulang'); }
+    if (connection === 'close') { const kode = lastDisconnect && lastDisconnect.error && lastDisconnect.error.output && lastDisconnect.error.output.statusCode; if (kode !== DisconnectReason.loggedOut) mulai(); else { console.error('Logout: sesi lama dihapus otomatis, buka /qr dan scan ulang'); try { fs.rmSync(AUTH_DIR, { recursive: true, force: true }); } catch (e) { /* abaikan */ } mulai(); } }
   });
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
     for (const m of messages) {
