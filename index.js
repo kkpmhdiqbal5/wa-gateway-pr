@@ -3,6 +3,7 @@
 //   HOOK_URL   alamat webhook lengkap ...exec?hook=RAHASIA&tugas=PR
 //   PUBLIC_URL alamat publik Railway, mis. https://nama-app.up.railway.app
 //   PAIR_PHONE nomor WA khusus untuk login pertama, format 628xxxx (tanpa +)
+//   TERIMA_SENDIRI  isi 1 bila pesan yang Anda kirim sendiri dari HP nomor gateway juga harus dibaca
 //   QR_KEY     kata bebas (panjang) untuk membuka halaman QR: PUBLIC_URL/qr?k=KATA
 //   GRUP       (opsional) id grup dipisah koma; kosong = semua grup
 //   AUTH_DIR   (opsional) folder sesi, arahkan ke Volume Railway, mis. /data/auth
@@ -11,7 +12,7 @@ const QRCode = require('qrcode');
 const pino = require('pino');
 const { default: makeWASocket, useMultiFileAuthState, downloadMediaMessage, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 
-const { HOOK_URL, PUBLIC_URL = '', PAIR_PHONE, GRUP = '', AUTH_DIR = './auth', QR_KEY = '' } = process.env;
+const { HOOK_URL, PUBLIC_URL = '', PAIR_PHONE, GRUP = '', AUTH_DIR = './auth', QR_KEY = '', TERIMA_SENDIRI = '' } = process.env;
 let qrTerakhir = '', tersambung = false;
 if (!HOOK_URL) { console.error('HOOK_URL belum diisi'); process.exit(1); }
 const grupBoleh = GRUP.split(',').map(s => s.trim()).filter(Boolean);
@@ -50,16 +51,17 @@ async function mulai() {
     if (connection === 'close') { const kode = lastDisconnect && lastDisconnect.error && lastDisconnect.error.output && lastDisconnect.error.output.statusCode; if (kode !== DisconnectReason.loggedOut) mulai(); else console.error('Logout: hapus folder sesi lalu pasangkan ulang'); }
   });
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
-    if (type !== 'notify') return;
     for (const m of messages) {
       try {
         const jid = m.key.remoteJid || '';
-        if (m.key.fromMe || !m.message || !jid.endsWith('@g.us')) continue;
+        const baru = Date.now() / 1000 - Number(m.messageTimestamp || 0) < 120;       // abaikan riwayat lama saat tersambung
+        if (type !== 'notify' && !(TERIMA_SENDIRI && m.key.fromMe && baru)) continue;
+        if ((m.key.fromMe && !TERIMA_SENDIRI) || !m.message || !jid.endsWith('@g.us')) continue;
         if (grupBoleh.length && grupBoleh.indexOf(jid) < 0) continue;
         const isi = m.message.ephemeralMessage ? m.message.ephemeralMessage.message : m.message;
         const img = isi.imageMessage, loc = isi.locationMessage || isi.liveLocationMessage;
         const teks = isi.conversation || (isi.extendedTextMessage && isi.extendedTextMessage.text) || (img && img.caption) || '';
-        const body = { sender: jid, member: (m.key.participant || '').split('@')[0], name: m.pushName || '', message: teks || 'non-text message', id: m.key.id };
+        const body = { sender: jid, member: (m.key.participant || (m.key.fromMe ? PAIR_PHONE : '') || '').split('@')[0], name: m.pushName || '', message: teks || 'non-text message', id: m.key.id };
         if (loc) body.location = loc.degreesLatitude + ',' + loc.degreesLongitude;
         if (img) {
           const buf = await downloadMediaMessage(m, 'buffer', {});
