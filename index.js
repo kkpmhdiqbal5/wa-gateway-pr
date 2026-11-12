@@ -54,6 +54,7 @@ async function mulai() {
     for (const m of messages) {
       try {
         const jid = m.key.remoteJid || '';
+        console.log('masuk', type, jid, m.key.fromMe ? 'dari-sendiri' : 'dari-orang', m.message ? Object.keys(m.message).join(',') : 'kosong');   // diagnosa: hapus bila sudah stabil
         const baru = Date.now() / 1000 - Number(m.messageTimestamp || 0) < 120;       // abaikan riwayat lama saat tersambung
         if (type !== 'notify' && !(TERIMA_SENDIRI && m.key.fromMe && baru)) continue;
         if ((m.key.fromMe && !TERIMA_SENDIRI) || !m.message || !jid.endsWith('@g.us')) continue;
