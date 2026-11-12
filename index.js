@@ -64,10 +64,12 @@ async function mulai() {
         const body = { sender: jid, member: (m.key.participant || (m.key.fromMe ? PAIR_PHONE : '') || '').split('@')[0], name: m.pushName || '', message: teks || 'non-text message', id: m.key.id };
         if (loc) body.location = loc.degreesLatitude + ',' + loc.degreesLongitude;
         if (img) {
-          const buf = await downloadMediaMessage(m, 'buffer', {});
-          const id = crypto.randomBytes(16).toString('hex'); media.set(id, { buf, mime: img.mimetype || 'image/jpeg' });
-          setTimeout(() => media.delete(id), 30 * 60 * 1000);
-          body.url = PUBLIC_URL.replace(/\/$/, '') + '/m/' + id; body.extension = 'jpg'; body.filename = id + '.jpg';
+          try {
+            const buf = await downloadMediaMessage(m, 'buffer', {}, { logger: pino({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage });
+            const id = crypto.randomBytes(16).toString('hex'); media.set(id, { buf, mime: img.mimetype || 'image/jpeg' });
+            setTimeout(() => media.delete(id), 30 * 60 * 1000);
+            body.url = PUBLIC_URL.replace(/\/$/, '') + '/m/' + id; body.extension = 'jpg'; body.filename = id + '.jpg';
+          } catch (e) { console.error('foto gagal diunduh', e.message); body.galat = 'foto gagal diunduh gateway: ' + e.message; }
         }
         await kirim(body);
       } catch (e) { console.error('pesan gagal', e.message); }
