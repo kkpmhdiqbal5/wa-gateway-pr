@@ -88,6 +88,16 @@ async function mulai() {
     if (connection === 'close') tersambung = false;
     if (connection === 'close') { const kode = lastDisconnect && lastDisconnect.error && lastDisconnect.error.output && lastDisconnect.error.output.statusCode; if (kode !== DisconnectReason.loggedOut) mulai(); else { console.error('Logout: sesi lama dihapus otomatis, buka /qr dan scan ulang'); try { fs.rmSync(AUTH_DIR, { recursive: true, force: true }); } catch (e) { /* abaikan */ } mulai(); } }
   });
+  sock.ev.on('messages.reaction', async (rs) => {                      // reaksi orang di WhatsApp -> hook (data ditandai sudah diambil)
+    for (const r of rs) {
+      try {
+        if (!r.reaction || !r.reaction.text || (r.reaction.key && r.reaction.key.fromMe)) continue;
+        const jid = r.key.remoteJid || ''; if (!jid.endsWith('@g.us')) continue;
+        if (grupBoleh.length && grupBoleh.indexOf(jid) < 0) continue;
+        await kirim({ sender: jid, member: ((r.reaction.key && r.reaction.key.participant) || '').split('@')[0], message: 'reaksi ' + r.reaction.text + ' ' + r.key.id, id: 'r' + r.key.id + r.reaction.text, reaksi: r.reaction.text, reaksi_id: r.key.id });
+      } catch (e) { console.error('reaksi gagal', e.message); }
+    }
+  });
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
     for (const m of messages) {
       try {
